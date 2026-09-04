@@ -22,8 +22,9 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleTheme
 }) => {
   return (
-    <nav className="fixed top-0 left-0 w-full z-40 bg-[var(--bg-surface-translucent)] backdrop-blur-xl border-b hairline-border px-6 md:px-16 py-4 flex justify-between items-center transition-all duration-300">
-      {/* Brand / Logo */}
+    <nav className="fixed top-0 left-0 w-full z-40 bg-[var(--bg-surface-translucent)] backdrop-blur-xl border-b hairline-border py-4 transition-all duration-300">
+      <div className="editorial-container flex justify-between items-center">
+        {/* Brand / Logo */}
       <button
         onClick={() => onNavigate('intro')}
         className="text-left font-heading-jost text-xl md:text-2xl text-[var(--text-primary)] tracking-tight hover:opacity-80 transition-opacity font-semibold"
@@ -120,6 +121,7 @@ export const Header: React.FC<HeaderProps> = ({
             {theme === 'dark' ? 'DARK' : 'LIGHT'}
           </span>
         </button>
+      </div>
       </div>
     </nav>
   );

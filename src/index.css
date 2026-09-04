@@ -187,3 +187,31 @@
   background: var(--accent-primary);
 }
 
+/* Hide scrollbars for intentional wide editorial canvas */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Unified responsive editorial section container */
+.editorial-container {
+  width: 100%;
+  max-width: 1780px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: clamp(1.5rem, 4vw, 5rem);
+  padding-right: clamp(1.5rem, 4vw, 5rem);
+}
+
+/* Controlled horizontal collection viewport */
+.collection-viewport {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+

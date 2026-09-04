@@ -34,7 +34,7 @@ export const PersistentPlayerBar: React.FC<PersistentPlayerBarProps> = ({
   };
 
   return (
-    <aside aria-label="Audio Playback Bar" className="fixed bottom-4 left-4 right-4 md:left-12 md:right-12 z-30 bg-[var(--player-bar-bg)] backdrop-blur-xl border hairline-border shadow-2xl p-3 sm:px-6 sm:py-3 transition-all duration-300 font-sans-clean select-none text-[var(--text-primary)]">
+    <aside aria-label="Audio Playback Bar" className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] sm:w-[calc(100%-4rem)] max-w-[1700px] z-30 bg-[var(--player-bar-bg)] backdrop-blur-xl border hairline-border shadow-2xl p-3 sm:px-6 sm:py-3 transition-all duration-300 font-sans-clean select-none text-[var(--text-primary)]">
       <div className="flex items-center justify-between gap-4">
         {/* Left: Artwork & Metadata */}
         <div

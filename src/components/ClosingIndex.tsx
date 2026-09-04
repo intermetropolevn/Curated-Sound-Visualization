@@ -284,8 +284,9 @@ export const ClosingIndex: React.FC<ClosingIndexProps> = ({
   const endRecordNum = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
 
   return (
-    <footer id="closing" className="py-24 px-6 md:px-16 max-w-7xl mx-auto font-sans-clean bg-[var(--bg-main)] text-[var(--text-primary)] transition-colors duration-300">
-      {/* Section Header */}
+    <footer id="closing" className="py-20 md:py-28 w-full border-t hairline-border font-sans-clean bg-[var(--bg-main)] text-[var(--text-primary)] transition-colors duration-300">
+      <div className="editorial-container">
+        {/* Section Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end pb-8 mb-8 border-b hairline-border gap-6">
         <div>
           <span className="text-[10px] uppercase tracking-widest text-[var(--accent-primary)] font-semibold block mb-2">
@@ -853,6 +854,7 @@ export const ClosingIndex: React.FC<ClosingIndexProps> = ({
             Build a similar site like this
           </a>
         </div>
+      </div>
       </div>
     </footer>
   );
