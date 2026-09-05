@@ -1,4 +1,5 @@
-import { TrackConfig, AudioMetrics } from '../types';
+import { TrackConfig, AudioMetrics, PlaybackContext, QueueState } from '../types';
+import { updatePlaybackContextTrack } from './playbackContext';
 
 export interface AudioErrorState {
   message: string;
@@ -14,7 +15,9 @@ export type AudioEventListener = (state: {
   volume: number;
   isMuted: boolean;
   trackId: string | null;
+  currentTrack?: TrackConfig | null;
   audioError: AudioErrorState | null;
+  playbackContext?: PlaybackContext | null;
 }) => void;
 
 class AudioEngine {
@@ -25,6 +28,7 @@ class AudioEngine {
   private audioElement: HTMLAudioElement;
 
   private currentTrack: TrackConfig | null = null;
+  private playbackContext: PlaybackContext | null = null;
   private isPlaying = false;
   private isLoading = false;
   private isMuted = false;
@@ -32,8 +36,10 @@ class AudioEngine {
   private duration = 240;
   private currentTime = 0;
   private audioError: AudioErrorState | null = null;
+  private isAdvancingQueue = false;
 
   private listeners: Set<AudioEventListener> = new Set();
+  private onTrackEndedListeners: Set<() => void> = new Set();
   private frequencyData: Uint8Array = new Uint8Array(128);
   private timeDomainData: Uint8Array = new Uint8Array(128);
   private rafId: number | null = null;
@@ -119,7 +125,7 @@ class AudioEngine {
     }
   }
 
-  public async loadTrack(track: TrackConfig, autoPlay = true) {
+  public async loadTrack(track: TrackConfig, autoPlay = true, isAutoAdvance = false): Promise<void> {
     this.initAudioContext();
 
     // 1. Stop current audio
@@ -140,24 +146,116 @@ class AudioEngine {
 
     const targetAudioUrl = track.audioUrl || track.audio;
 
+    if (!targetAudioUrl || typeof targetAudioUrl !== 'string' || !targetAudioUrl.trim()) {
+      const filename = track.slug ? `${track.slug}.mp3` : 'audio.mp3';
+      this.audioError = {
+        message: 'Missing audio source URL.',
+        filename,
+        url: ''
+      };
+      this.isLoading = false;
+      this.notifyListeners();
+      throw new Error(`Track "${track.title}" has no valid audio URL`);
+    }
+
     // Diagnostics per requirements
     console.log('[AUDIO]', track.title);
     console.log('[AUDIO URL]', targetAudioUrl);
 
-    // 3. Update audio.src & 4. load()
+    // 2. Set src, reset, volume
     this.audioElement.src = targetAudioUrl;
     this.audioElement.currentTime = 0;
     this.audioElement.volume = this.isMuted ? 0 : this.volume;
-    this.audioElement.load();
-
-    console.log('[AUDIO READY]', this.audioElement.readyState);
-    console.log('[AUDIO ERROR]', this.audioElement.error);
-
     this.notifyListeners();
 
-    if (autoPlay) {
-      await this.play();
-    }
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+
+      const cleanup = () => {
+        this.audioElement.removeEventListener('canplay', onCanPlay);
+        this.audioElement.removeEventListener('loadeddata', onCanPlay);
+        this.audioElement.removeEventListener('error', onError);
+      };
+
+      const onCanPlay = async () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        this.isLoading = false;
+        this.notifyListeners();
+
+        if (autoPlay) {
+          try {
+            await this.play();
+            resolve();
+          } catch (err) {
+            if (isAutoAdvance) {
+              reject(err);
+            } else {
+              // Non-fatal if browser blocks manual play without gesture
+              resolve();
+            }
+          }
+        } else {
+          resolve();
+        }
+      };
+
+      const onError = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        this.isLoading = false;
+        const filename = track.slug ? `${track.slug}.mp3` : 'audio.mp3';
+        const url = this.audioElement.currentSrc || this.audioElement.src;
+        this.audioError = {
+          message: 'Could not load the source audio.',
+          filename,
+          url
+        };
+        this.notifyListeners();
+        reject(new Error(`Failed to load audio for track "${track.title}"`));
+      };
+
+      this.audioElement.addEventListener('canplay', onCanPlay, { once: true });
+      this.audioElement.addEventListener('loadeddata', onCanPlay, { once: true });
+      this.audioElement.addEventListener('error', onError, { once: true });
+
+      try {
+        this.audioElement.load();
+        if (this.audioElement.readyState >= 2) {
+          onCanPlay();
+        }
+      } catch (err) {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          reject(err);
+        }
+      }
+
+      // Safety timeout: 7 seconds maximum to allow audio to buffer without locking player
+      setTimeout(() => {
+        if (!settled) {
+          if (this.audioElement.readyState >= 2) {
+            onCanPlay();
+          } else if (this.audioElement.error) {
+            onError();
+          } else {
+            console.warn('[AUDIO LOAD TIMEOUT] Resource took >7s:', targetAudioUrl);
+            if (isAutoAdvance) {
+              settled = true;
+              cleanup();
+              reject(new Error(`Audio load timed out for track "${track.title}"`));
+            } else {
+              settled = true;
+              cleanup();
+              resolve();
+            }
+          }
+        }
+      }, 7000);
+    });
   }
 
   private handleLoadedMetadata = () => {
@@ -197,10 +295,180 @@ class AudioEngine {
     this.notifyListeners();
   };
 
-  private handleEnded = () => {
+  private handleEnded = async () => {
+    console.log('[AUDIO ENDED]', this.currentTrack?.title);
     this.isPlaying = false;
     this.notifyListeners();
+
+    this.onTrackEndedListeners.forEach((cb) => {
+      try {
+        cb();
+      } catch (e) {
+        console.error('[AUDIO ON_TRACK_ENDED ERROR]', e);
+      }
+    });
+
+    // AUTO PLAY FLOW:
+    // When the current audio reaches its natural end:
+    // 1. Detect the playback ended event.
+    // 2. Ask the active playback queue for the next track.
+    // 3. Update currentTrack.
+    // 4. Load the next audio source.
+    // 5. Continue playback automatically.
+    // 6. Update player metadata/UI.
+    // 7. Continue until the queue is exhausted.
+    await this.playNextTrack('auto');
   };
+
+  public onTrackEnded(listener: () => void): () => void {
+    this.onTrackEndedListeners.add(listener);
+    return () => {
+      this.onTrackEndedListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Advances playback to the next track within the active queue.
+   * Handles edge cases:
+   * - missing next track / queue exhausted
+   * - missing audio URLs (gracefully skips to next candidate)
+   * - failed audio loading (gracefully skips to next candidate)
+   * - deleted / corrupted track entries
+   * - never creates an infinite loop (bounded by remaining queue length)
+   */
+  public async playNextTrack(reason: 'auto' | 'manual' = 'auto'): Promise<boolean> {
+    if (this.isAdvancingQueue) {
+      console.warn('[AUDIO QUEUE] Queue advance already in progress, skipping redundant trigger');
+      return false;
+    }
+
+    const ctx = this.playbackContext;
+    if (!ctx) {
+      console.warn('[AUDIO QUEUE] No active playback context found to advance');
+      return false;
+    }
+
+    this.isAdvancingQueue = true;
+
+    try {
+      let currentCtx = this.playbackContext || ctx;
+      const maxAttempts = currentCtx.queue.length;
+      let attempts = 0;
+
+      while (currentCtx.nextTrack && attempts < maxAttempts) {
+        attempts++;
+        const candidate = currentCtx.nextTrack;
+        const candidateIdx = currentCtx.currentPosition + 1;
+
+        console.log(`[AUDIO QUEUE ADVANCE] [${reason.toUpperCase()}] Evaluating candidate #${candidateIdx}: ${candidate.number} ${candidate.title}`);
+
+        // Edge case: Deleted / null candidate
+        if (!candidate || !candidate.id) {
+          console.warn(`[AUDIO SKIP] Candidate at index ${candidateIdx} is invalid. Skipping.`);
+          currentCtx = updatePlaybackContextTrack(currentCtx, candidate || ({ id: `unknown-${attempts}` } as TrackConfig), candidateIdx);
+          this.setPlaybackContext(currentCtx);
+          continue;
+        }
+
+        // Edge case: Missing audio URL
+        const targetAudioUrl = candidate.audioUrl || candidate.audio;
+        if (!targetAudioUrl || typeof targetAudioUrl !== 'string' || !targetAudioUrl.trim()) {
+          console.warn(`[AUDIO SKIP] Track "${candidate.title}" has no audio URL. Gracefully skipping to next candidate.`);
+          currentCtx = updatePlaybackContextTrack(currentCtx, candidate, candidateIdx);
+          this.setPlaybackContext(currentCtx);
+          continue;
+        }
+
+        // Candidate has a URL; attempt to load and play
+        try {
+          currentCtx = updatePlaybackContextTrack(currentCtx, candidate, candidateIdx);
+          this.setPlaybackContext(currentCtx);
+          this.currentTrack = candidate;
+          this.notifyListeners();
+
+          await this.loadTrack(candidate, true, true);
+          console.log(`[AUDIO QUEUE PLAYING] Successfully transitioned to: ${candidate.number} ${candidate.title}`);
+          return true;
+        } catch (loadErr) {
+          console.warn(`[AUDIO SKIP] Candidate "${candidate.title}" failed to load or play. Skipping to next candidate.`, loadErr);
+          // Loop continues to test the following track in currentCtx.nextTrack
+        }
+      }
+
+      // If loop finishes without returning, queue is exhausted or no candidate could be loaded
+      console.log('[QUEUE EXHAUSTED] Reached end of playback queue or no further playable tracks found.');
+      this.isPlaying = false;
+      this.isLoading = false;
+      this.notifyListeners();
+      return false;
+    } finally {
+      this.isAdvancingQueue = false;
+    }
+  }
+
+  /**
+   * Rewinds or moves back to the previous track in the active queue.
+   */
+  public async playPrevTrack(): Promise<boolean> {
+    if (this.currentTime > 3) {
+      this.seek(0);
+      return true;
+    }
+
+    const ctx = this.playbackContext;
+    if (!ctx) {
+      this.seek(0);
+      return false;
+    }
+
+    if (ctx.currentPosition > 0) {
+      const prevIdx = ctx.currentPosition - 1;
+      const prevTrack = ctx.queue[prevIdx];
+      if (prevTrack) {
+        const updatedCtx = updatePlaybackContextTrack(ctx, prevTrack, prevIdx);
+        this.setPlaybackContext(updatedCtx);
+        this.currentTrack = prevTrack;
+        this.notifyListeners();
+        await this.loadTrack(prevTrack, true);
+        return true;
+      }
+    }
+
+    this.seek(0);
+    return false;
+  }
+
+  public setPlaybackContext(context: PlaybackContext | null) {
+    this.playbackContext = context;
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __SONOVERSE_PLAYBACK_CONTEXT__?: PlaybackContext | null }).__SONOVERSE_PLAYBACK_CONTEXT__ =
+        context;
+      (window as unknown as { __SONOVERSE_QUEUE_STATE__?: QueueState }).__SONOVERSE_QUEUE_STATE__ =
+        this.getQueueState();
+    }
+    this.notifyListeners();
+  }
+
+  public getPlaybackContext(): PlaybackContext | null {
+    return this.playbackContext;
+  }
+
+  public getQueueState(): QueueState {
+    if (this.playbackContext) {
+      return {
+        currentTrack: this.playbackContext.currentTrack,
+        nextTrack: this.playbackContext.nextTrack,
+        remainingQueue: this.playbackContext.remainingQueue,
+        queueMode: this.playbackContext.queueMode,
+      };
+    }
+    return {
+      currentTrack: this.currentTrack,
+      nextTrack: null,
+      remainingQueue: [],
+      queueMode: 'catalog',
+    };
+  }
 
   public async play() {
     this.initAudioContext();
@@ -344,7 +612,9 @@ class AudioEngine {
       volume: this.volume,
       isMuted: this.isMuted,
       trackId: this.currentTrack?.id || null,
-      audioError: this.audioError
+      currentTrack: this.currentTrack,
+      audioError: this.audioError,
+      playbackContext: this.playbackContext
     });
 
     return () => {
@@ -361,7 +631,9 @@ class AudioEngine {
       volume: this.volume,
       isMuted: this.isMuted,
       trackId: this.currentTrack?.id || null,
-      audioError: this.audioError
+      currentTrack: this.currentTrack,
+      audioError: this.audioError,
+      playbackContext: this.playbackContext
     };
     this.listeners.forEach((fn) => fn(state));
   }
@@ -375,7 +647,8 @@ class AudioEngine {
       volume: this.volume,
       isMuted: this.isMuted,
       currentTrack: this.currentTrack,
-      audioError: this.audioError
+      audioError: this.audioError,
+      playbackContext: this.playbackContext
     };
   }
 }

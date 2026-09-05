@@ -1,10 +1,10 @@
 import React from 'react';
-import { TrackConfig } from '../types';
+import { TrackConfig, PlayTrackOptions } from '../types';
 import { Play, Sparkles, ArrowDown } from 'lucide-react';
 
 interface HeroCoverProps {
   tracks: TrackConfig[];
-  onPlayTrack: (track: TrackConfig) => void;
+  onPlayTrack: (track: TrackConfig, options?: PlayTrackOptions) => void;
   onExploreCollection: () => void;
 }
 
@@ -60,7 +60,15 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
             {/* Direct CTA Affordances */}
             <div className="flex flex-wrap items-center gap-4 pt-2 sm:pt-4 font-sans-clean">
               <button
-                onClick={() => onPlayTrack(featuredTrack)}
+                onClick={() =>
+                  onPlayTrack(featuredTrack, {
+                    source: 'hero',
+                    sourceType: 'CATALOG',
+                    activeFilters: {},
+                    activeSort: 'default',
+                    queue: tracks,
+                  })
+                }
                 className="group flex items-center gap-3 px-6 py-3.5 bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] hover:opacity-90 transition-all duration-300 shadow-md font-semibold cursor-pointer"
               >
                 <Play className="w-4 h-4 fill-current transition-transform group-hover:scale-110" />

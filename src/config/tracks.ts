@@ -301,6 +301,14 @@ export const TRACK_REGISTRY: TrackConfig[] = [
 ];
 
 /**
+ * Canonical catalog order strictly sorted by track number (01..08).
+ * Serves as the deterministic ground truth for CATALOG QUEUE mode.
+ */
+export const CANONICAL_CATALOG_ORDER: TrackConfig[] = [...TRACK_REGISTRY].sort(
+  (a, b) => parseInt(a.number, 10) - parseInt(b.number, 10)
+);
+
+/**
  * Default editorial collection selection configuration
  */
 export const DEFAULT_COLLECTION_CONFIG: CollectionConfig = {

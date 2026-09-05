@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { TrackConfig, NormalizedLyricDoc, LyricLearningItem, VisualizerMode } from '../types';
+import { TrackConfig, NormalizedLyricDoc, LyricLearningItem, VisualizerMode, PlaybackContext } from '../types';
 import { audioEngine } from '../services/audioEngine';
 import { fetchTrackLyrics, parseDurationToSeconds } from '../services/lyricService';
+import { getContextualPlaybackInfo } from '../services/playbackContext';
 import { AudioVisualizer } from './AudioVisualizer';
 import { SynchronizedLyricsView } from './SynchronizedLyricsView';
 import { LearnEnglishLayer } from './LearnEnglishLayer';
@@ -17,21 +18,28 @@ import {
   VolumeX,
   FileText,
   Sparkles,
-  Info
+  Info,
+  Maximize2
 } from 'lucide-react';
 
 interface ImmersivePlayerProps {
   track: TrackConfig;
   allTracks: TrackConfig[];
+  playbackContext?: PlaybackContext | null;
   onBack: () => void;
   onSelectTrack: (track: TrackConfig) => void;
+  onNext?: () => void;
+  onPrev?: () => void;
 }
 
 export const ImmersivePlayer: React.FC<ImmersivePlayerProps> = ({
   track,
   allTracks,
+  playbackContext,
   onBack,
-  onSelectTrack
+  onSelectTrack,
+  onNext,
+  onPrev
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -40,6 +48,15 @@ export const ImmersivePlayer: React.FC<ImmersivePlayerProps> = ({
   const [duration, setDuration] = useState(240);
   const [volume, setVolume] = useState(0.85);
   const [isMuted, setIsMuted] = useState(false);
+  const [currentPlaybackContext, setCurrentPlaybackContext] = useState<PlaybackContext | null>(
+    playbackContext ?? audioEngine.getPlaybackContext()
+  );
+
+  useEffect(() => {
+    if (playbackContext !== undefined) {
+      setCurrentPlaybackContext(playbackContext);
+    }
+  }, [playbackContext]);
 
   const [lyrics, setLyrics] = useState<NormalizedLyricDoc | null>(null);
   const [visualizerMode, setVisualizerMode] = useState<VisualizerMode>('spectral-bars');
@@ -59,10 +76,15 @@ export const ImmersivePlayer: React.FC<ImmersivePlayerProps> = ({
       setVolume(state.volume);
       setIsMuted(state.isMuted);
       setAudioError(state.audioError);
+      if (state.playbackContext) {
+        setCurrentPlaybackContext(state.playbackContext);
+      }
     });
 
     return unsubscribe;
   }, []);
+
+  const contextInfo = getContextualPlaybackInfo(currentPlaybackContext);
 
   // Fetch dynamic lyrics whenever track changes
   useEffect(() => {
@@ -84,11 +106,19 @@ export const ImmersivePlayer: React.FC<ImmersivePlayerProps> = ({
   const currentIndex = allTracks.findIndex((t) => t.id === track.id);
 
   const handleNext = () => {
+    if (onNext) {
+      onNext();
+      return;
+    }
     const nextIdx = (currentIndex + 1) % allTracks.length;
     onSelectTrack(allTracks[nextIdx]);
   };
 
   const handlePrev = () => {
+    if (onPrev) {
+      onPrev();
+      return;
+    }
     const prevIdx = (currentIndex - 1 + allTracks.length) % allTracks.length;
     onSelectTrack(allTracks[prevIdx]);
   };
@@ -126,10 +156,28 @@ export const ImmersivePlayer: React.FC<ImmersivePlayerProps> = ({
         </button>
 
         {/* Center Pill / Mode Indicator */}
-        <div className="hidden md:flex items-center gap-3 text-[11px] font-sans-clean uppercase tracking-widest text-[var(--text-secondary)]">
-          <span className="px-2.5 py-0.5 border hairline-border bg-[var(--bg-chip)] text-[var(--text-primary)]">
-            EXHIBIT {track.number} OF 06
+        <div className="hidden md:flex items-center gap-2.5 text-[11px] font-sans-clean uppercase tracking-widest text-[var(--text-secondary)]">
+          <span className="px-2.5 py-0.5 border hairline-border bg-[var(--bg-chip)] text-[var(--text-primary)] font-mono">
+            EXHIBIT {track.number} OF {String(allTracks.length).padStart(2, '0')}
           </span>
+
+          {/* Subtle Contextual Indication Pill */}
+          <span
+            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 border hairline-border bg-[var(--bg-chip)] text-[var(--text-muted)] text-[10px] tracking-wider font-mono select-none"
+            title={contextInfo.nextTrackTitle ? `Next: ${contextInfo.nextTrackTitle}` : undefined}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                contextInfo.mode === 'contextual'
+                  ? 'bg-[var(--accent-primary)]'
+                  : 'bg-[var(--text-muted)]/50'
+              }`}
+            />
+            <span className="text-[var(--text-primary)] font-semibold">{contextInfo.badge}</span>
+            <span className="opacity-40">·</span>
+            <span>{contextInfo.statusText}</span>
+          </span>
+
           {isLoading && (
             <span className="inline-flex items-center gap-1.5 text-[10px] text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 px-2 py-0.5 border border-[var(--accent-primary)]/20 animate-pulse">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)]"></span>
@@ -162,7 +210,7 @@ export const ImmersivePlayer: React.FC<ImmersivePlayerProps> = ({
       </header>
 
       {/* Main Exhibition Stage: 42% Artwork/Visualizer + 58% Lyrics or Full Notes */}
-      <main className="flex-1 w-full flex flex-col md:flex-row pt-20 md:pt-24 pb-28 md:pb-32 px-6 md:px-16 max-w-7xl mx-auto items-stretch gap-8 md:gap-12 min-h-0">
+      <main className="flex-1 w-full flex flex-col md:flex-row pt-20 md:pt-24 pb-32 md:pb-36 px-6 md:px-16 max-w-7xl mx-auto items-stretch gap-8 md:gap-12 min-h-0">
         {/* Left Column: Framed Artwork & Compact Disc Visualizer (42% width) */}
         <section className="w-full md:w-[42%] flex flex-col justify-center items-center relative">
           <div className="w-full max-w-md flex flex-col items-center">
@@ -316,6 +364,18 @@ export const ImmersivePlayer: React.FC<ImmersivePlayerProps> = ({
               {/* Metadata Cluster */}
               <div className="flex justify-between items-start mb-3 shrink-0">
                 <div>
+                  <div className="md:hidden flex items-center gap-1.5 mb-1.5 font-mono text-[9px] uppercase tracking-wider text-[var(--text-muted)] select-none">
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        contextInfo.mode === 'contextual'
+                          ? 'bg-[var(--accent-primary)]'
+                          : 'bg-[var(--text-muted)]/50'
+                      }`}
+                    />
+                    <span className="text-[var(--text-primary)] font-semibold">{contextInfo.badge}</span>
+                    <span className="opacity-30">·</span>
+                    <span>{contextInfo.statusText}</span>
+                  </div>
                   <h1 className="font-heading-jost text-3xl md:text-5xl text-[var(--text-primary)] tracking-tight leading-tight">
                     {track.title}
                   </h1>
@@ -384,111 +444,165 @@ export const ImmersivePlayer: React.FC<ImmersivePlayerProps> = ({
       </main>
 
       {/* Fixed Bottom Exhibition Audio Controller & Spectral Waveform */}
-      <footer className="fixed bottom-0 left-0 w-full bg-[var(--player-bar-bg)] backdrop-blur-xl border-t hairline-border flex flex-col z-50 shadow-2xl">
-        {/* Live Reactive Waveform Scrubber */}
-        <div className="w-full relative group">
-          <AudioVisualizer
-            mode={visualizerMode}
-            height={44}
-            accentColor="currentColor"
-            interactive={true}
-            onSeek={handleScrubberSeek}
-            playbackRatio={playbackRatio}
-            className="w-full bg-[var(--bg-surface)]/80"
-          />
+      <footer className="fixed bottom-0 left-0 w-full bg-[var(--player-bar-bg)] backdrop-blur-xl border-t hairline-border z-50 shadow-2xl transition-all duration-300">
+        <div className="w-full max-w-[1700px] mx-auto px-4 sm:px-6 pt-2 sm:pt-2.5 pb-3 sm:pb-3.5 flex flex-col gap-2 sm:gap-2.5">
+          {/* Row 1: Full-Width Progress / Visualizer Row (24px horizontal boundaries) */}
+          <div className="w-full relative group border hairline-border overflow-hidden bg-[var(--bg-surface)]/60">
+            <AudioVisualizer
+              mode={visualizerMode}
+              height={36}
+              accentColor="currentColor"
+              interactive={true}
+              onSeek={handleScrubberSeek}
+              playbackRatio={playbackRatio}
+              className="w-full cursor-pointer"
+            />
 
-          {/* Precision Scrubber Line */}
-          <div
-            className="w-full h-[2px] bg-white/10 relative cursor-pointer"
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const ratio = (e.clientX - rect.left) / rect.width;
-              handleScrubberSeek(ratio);
-            }}
-          >
+            {/* Precision Scrubber Line */}
             <div
-              className="absolute top-0 left-0 h-full bg-[var(--accent-primary)] transition-all duration-100 ease-linear"
-              style={{ width: `${playbackRatio * 100}%` }}
-            ></div>
-            {/* Playhead Diamond */}
-            <div
-              className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-[var(--accent-highlight)] border border-[#10110E] shadow-md pointer-events-none -ml-1.5"
-              style={{ left: `${playbackRatio * 100}%` }}
-            ></div>
-          </div>
-        </div>
-
-        {/* Controls Bar Container */}
-        <div className="flex justify-between items-center w-full px-6 md:px-16 py-3.5">
-          {/* Elapsed & Duration time */}
-          <div className="font-mono text-xs tabular-nums tracking-wider text-[var(--text-secondary)] w-32">
-            {formatTime(currentTime)} / {formatTime(duration)}
-          </div>
-
-          {/* Primary Transport Controls */}
-          <div className="flex items-center gap-6 md:gap-8">
-            <button
-              onClick={handlePrev}
-              className="text-[var(--text-secondary)] hover:text-[var(--accent-primary)] transition-colors p-1.5"
-              title="Previous Track"
+              className="w-full h-[2px] bg-white/10 relative cursor-pointer"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const ratio = (e.clientX - rect.left) / rect.width;
+                handleScrubberSeek(ratio);
+              }}
             >
-              <SkipBack className="w-5 h-5" />
-            </button>
-
-            {/* Circular Play/Pause Button */}
-            <button
-              onClick={() => audioEngine.togglePlay()}
-              className="w-12 h-12 flex items-center justify-center border hairline-border rounded-full hover:bg-[var(--accent-primary)] hover:border-[var(--accent-primary)] hover:text-[#FFFFFF] dark:hover:text-[#10110E] transition-all duration-300 group shadow-lg bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)]"
-              title={isPlaying ? 'Pause' : 'Play'}
-            >
-              {isPlaying ? (
-                <Pause className="w-5 h-5 transition-transform group-hover:scale-90" />
-              ) : (
-                <Play className="w-5 h-5 ml-0.5 fill-current transition-transform group-hover:scale-95 text-inherit" />
-              )}
-            </button>
-
-            <button
-              onClick={handleNext}
-              className="text-[var(--text-secondary)] hover:text-[var(--accent-primary)] transition-colors p-1.5"
-              title="Next Track"
-            >
-              <SkipForward className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Volume & Auxiliary Actions */}
-          <div className="flex items-center gap-3 md:gap-5 w-36 justify-end text-[var(--text-secondary)]">
-            <div className="hidden sm:flex items-center gap-2">
-              <button
-                onClick={() => audioEngine.toggleMute()}
-                className="hover:text-[var(--accent-primary)] transition-colors"
-                title={isMuted ? 'Unmute' : 'Mute'}
-              >
-                {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
-              </button>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={isMuted ? 0 : volume}
-                onChange={(e) => audioEngine.setVolume(parseFloat(e.target.value))}
-                className="w-16 h-1 bg-white/20 accent-[var(--accent-primary)] cursor-pointer"
+              <div
+                className="absolute top-0 left-0 h-full bg-[var(--accent-primary)] transition-all duration-100 ease-linear"
+                style={{ width: `${playbackRatio * 100}%` }}
+              />
+              {/* Playhead Diamond */}
+              <div
+                className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-[var(--accent-highlight)] border border-[#10110E] shadow-md pointer-events-none -ml-1.5"
+                style={{ left: `${playbackRatio * 100}%` }}
               />
             </div>
+          </div>
 
-            <button
-              onClick={() => setShowDetailDrawer(!showDetailDrawer)}
-              className={`transition-colors p-1 border ${
-                showDetailDrawer
-                  ? 'border-[var(--accent-primary)] text-[var(--accent-primary)] bg-[var(--accent-primary)]/15'
-                  : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--accent-primary)]'
-              }`}
-              title="Toggle Exhibition Catalog Notes"
-            >
-              <FileText className="w-4 h-4" />
-            </button>
+          {/* Row 2: Information & Controls Row */}
+          <div className="flex md:grid md:grid-cols-[1fr_auto_1fr] items-center justify-between gap-2 sm:gap-4 md:gap-6 w-full min-w-0">
+            {/* LEFT: Time + Playback Context (Unclipped, generous line-height, wraps gracefully) */}
+            <div className="flex flex-col justify-center min-w-0 flex-1 md:flex-initial py-0.5">
+              <div className="font-mono text-xs sm:text-[13px] tabular-nums tracking-wider text-[var(--text-secondary)] leading-normal">
+                {formatTime(currentTime)} <span className="opacity-30">/</span> {formatTime(duration)}
+              </div>
+              <div
+                className="mt-1 font-mono text-[10px] sm:text-[11px] uppercase tracking-wider text-[var(--text-muted)] leading-relaxed select-none"
+                title={contextInfo.nextTrackTitle ? `Next in queue: ${contextInfo.nextTrackTitle}` : undefined}
+              >
+                <div className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      contextInfo.mode === 'contextual'
+                        ? 'bg-[var(--accent-primary)]'
+                        : 'bg-[var(--text-muted)]/60'
+                    }`}
+                  />
+                  <span
+                    className={`font-semibold tracking-wider shrink-0 ${
+                      contextInfo.mode === 'contextual'
+                        ? 'text-[var(--accent-primary)]'
+                        : 'text-[var(--text-primary)]'
+                    }`}
+                  >
+                    {contextInfo.badge}
+                  </span>
+                  <span className="opacity-30 select-none shrink-0">·</span>
+                  <span className="text-[var(--text-secondary)]">
+                    {contextInfo.statusText}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* CENTER: Player Controls (Centered & Visually Dominant Play/Pause) */}
+            <div className="flex items-center justify-center shrink-0">
+              <div className="flex items-center gap-2 sm:gap-5 md:gap-7">
+                <button
+                  onClick={handlePrev}
+                  className="text-[var(--text-secondary)] hover:text-[var(--accent-primary)] transition-colors p-1.5 sm:p-2 rounded-sm"
+                  title="Previous Track"
+                  aria-label="Previous Track"
+                >
+                  <SkipBack className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+
+                {/* Circular Dominant Play/Pause Button */}
+                <button
+                  onClick={() => audioEngine.togglePlay()}
+                  className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center border hairline-border rounded-full hover:bg-[var(--accent-primary)] hover:border-[var(--accent-primary)] hover:text-[#FFFFFF] dark:hover:text-[#10110E] transition-all duration-300 group shadow-lg bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shrink-0"
+                  title={isPlaying ? 'Pause' : 'Play'}
+                  aria-label={isPlaying ? 'Pause' : 'Play'}
+                >
+                  {isPlaying ? (
+                    <Pause className="w-4 h-4 sm:w-5 sm:h-5 transition-transform group-hover:scale-90" />
+                  ) : (
+                    <Play className="w-4 h-4 sm:w-5 sm:h-5 ml-0.5 fill-current transition-transform group-hover:scale-95 text-inherit" />
+                  )}
+                </button>
+
+                <button
+                  onClick={handleNext}
+                  className="text-[var(--text-secondary)] hover:text-[var(--accent-primary)] transition-colors p-1.5 sm:p-2 rounded-sm"
+                  title="Next Track"
+                  aria-label="Next Track"
+                >
+                  <SkipForward className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* RIGHT: Volume & Secondary Actions & Immersive Player Action */}
+            <div className="flex items-center justify-end gap-2 sm:gap-3 md:gap-4 shrink-0 text-[var(--text-secondary)]">
+              {/* Volume Control */}
+              <div className="hidden sm:flex items-center gap-2">
+                <button
+                  onClick={() => audioEngine.toggleMute()}
+                  className="p-1 hover:text-[var(--accent-primary)] transition-colors"
+                  title={isMuted ? 'Unmute' : 'Mute'}
+                  aria-label={isMuted ? 'Unmute' : 'Mute'}
+                >
+                  {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
+                </button>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={isMuted ? 0 : volume}
+                  onChange={(e) => audioEngine.setVolume(parseFloat(e.target.value))}
+                  className="w-14 md:w-20 h-1 bg-white/20 accent-[var(--accent-primary)] cursor-pointer"
+                  title="Volume"
+                  aria-label="Volume Slider"
+                />
+              </div>
+
+              {/* Catalog Notes Toggle Button */}
+              <button
+                onClick={() => setShowDetailDrawer(!showDetailDrawer)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 border hairline-border transition-colors text-[10px] sm:text-xs uppercase tracking-widest font-semibold shrink-0 select-none ${
+                  showDetailDrawer
+                    ? 'border-[var(--accent-primary)] text-[var(--accent-primary)] bg-[var(--accent-primary)]/15'
+                    : 'bg-[var(--bg-chip)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)] hover:border-[var(--accent-primary)]'
+                }`}
+                title="Toggle Exhibition Catalog Notes"
+                aria-label="Toggle Exhibition Catalog Notes"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">NOTES</span>
+              </button>
+
+              {/* Immersive Player / Exhibition Return Action */}
+              <button
+                onClick={onBack}
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-[var(--bg-chip)] border hairline-border text-[var(--text-primary)] hover:bg-[var(--accent-primary)] hover:text-[#FFFFFF] dark:hover:text-[#10110E] hover:border-[var(--accent-primary)] transition-colors text-[10px] sm:text-xs uppercase tracking-widest font-semibold shrink-0 select-none shadow-sm"
+                title="Return to Exhibition Gallery"
+                aria-label="Return to Exhibition Gallery"
+              >
+                <span className="hidden sm:inline">IMMERSIVE PLAYER</span>
+                <Maximize2 className="w-3.5 h-3.5 shrink-0 rotate-180" />
+              </button>
+            </div>
           </div>
         </div>
       </footer>

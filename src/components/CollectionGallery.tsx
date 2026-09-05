@@ -1,6 +1,13 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { TrackConfig, CollectionConfig, CollectionSortOption } from '../types';
+import {
+  TrackConfig,
+  CollectionConfig,
+  CollectionSortOption,
+  PlayTrackOptions,
+  PlaybackSourceType,
+  PlaybackActiveFilters,
+} from '../types';
 import { DEFAULT_COLLECTION_CONFIG } from '../config/tracks';
 import {
   Play,
@@ -18,8 +25,8 @@ interface CollectionGalleryProps {
   tracks: TrackConfig[];
   currentTrack: TrackConfig | null;
   isPlaying: boolean;
-  onPlayTrack: (track: TrackConfig) => void;
-  onOpenLyrics: (track: TrackConfig) => void;
+  onPlayTrack: (track: TrackConfig, options?: PlayTrackOptions) => void;
+  onOpenLyrics: (track: TrackConfig, options?: PlayTrackOptions) => void;
   onNavigateToArchive?: () => void;
   collectionConfig?: CollectionConfig;
 }
@@ -559,6 +566,44 @@ export const CollectionGallery: React.FC<CollectionGalleryProps> = ({
   const row1Tracks = useMemo(() => activePageTracks.slice(0, 4), [activePageTracks]);
   const row2Tracks = useMemo(() => activePageTracks.slice(4, 8), [activePageTracks]);
 
+  // Context-Aware Playback Capture Handler
+  // Captures the exact filtered/sorted context and freezes the queue from which playback started
+  const handlePlayTrackInCollection = (track: TrackConfig) => {
+    const isPodcast =
+      selectedContentType.toUpperCase() === 'PODCAST' ||
+      track.contentType?.toUpperCase() === 'PODCAST';
+    const hasFilters =
+      selectedLanguage !== 'ALL' ||
+      selectedContentType !== 'ALL' ||
+      selectedTheme !== 'ALL';
+
+    let sourceType: PlaybackSourceType = 'CATALOG';
+    if (isPodcast) {
+      sourceType = 'PODCAST_CONTEXT';
+    } else if (hasFilters) {
+      sourceType = 'FILTERED_COLLECTION';
+    } else {
+      sourceType = 'CATALOG';
+    }
+
+    const activeFilters: PlaybackActiveFilters = {};
+    if (selectedLanguage !== 'ALL') activeFilters.language = selectedLanguage;
+    if (selectedContentType !== 'ALL') activeFilters.contentType = selectedContentType;
+    if (selectedTheme !== 'ALL') activeFilters.theme = selectedTheme;
+
+    onPlayTrack(track, {
+      source: 'collection',
+      sourceType,
+      activeFilters,
+      activeSort: selectedSortOption,
+    });
+  };
+
+  const handleOpenLyricsInCollection = (track: TrackConfig) => {
+    handlePlayTrackInCollection(track);
+    onOpenLyrics(track);
+  };
+
   // Monitor horizontal viewport scroll progress and boundaries
   const updateScrollState = () => {
     const el = viewportRef.current;
@@ -991,8 +1036,8 @@ export const CollectionGallery: React.FC<CollectionGalleryProps> = ({
                             isCurrent={currentTrack?.id === track.id}
                             isPlaying={isPlaying}
                             totalCatalogCount={totalCatalogCount}
-                            onPlayTrack={onPlayTrack}
-                            onOpenLyrics={onOpenLyrics}
+                            onPlayTrack={handlePlayTrackInCollection}
+                            onOpenLyrics={handleOpenLyricsInCollection}
                           />
                         );
                       })}
@@ -1011,8 +1056,8 @@ export const CollectionGallery: React.FC<CollectionGalleryProps> = ({
                               isCurrent={currentTrack?.id === track.id}
                               isPlaying={isPlaying}
                               totalCatalogCount={totalCatalogCount}
-                              onPlayTrack={onPlayTrack}
-                              onOpenLyrics={onOpenLyrics}
+                              onPlayTrack={handlePlayTrackInCollection}
+                              onOpenLyrics={handleOpenLyricsInCollection}
                             />
                           );
                         })}
@@ -1037,8 +1082,8 @@ export const CollectionGallery: React.FC<CollectionGalleryProps> = ({
                             isCurrent={currentTrack?.id === track.id}
                             isPlaying={isPlaying}
                             totalCatalogCount={totalCatalogCount}
-                            onPlayTrack={onPlayTrack}
-                            onOpenLyrics={onOpenLyrics}
+                            onPlayTrack={handlePlayTrackInCollection}
+                            onOpenLyrics={handleOpenLyricsInCollection}
                             customWidthClass="w-[85vw] sm:w-[390px] min-w-[300px] max-w-[420px]"
                             customOffsetClass="mt-0"
                           />

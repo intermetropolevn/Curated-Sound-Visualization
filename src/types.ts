@@ -127,3 +127,97 @@ export interface AudioMetrics {
   isPeak: boolean;
 }
 
+export type PlaybackSourceType =
+  | 'CATALOG'
+  | 'FILTERED_COLLECTION'
+  | 'PODCAST_CONTEXT'
+  | 'SEARCH_CONTEXT';
+
+export interface PlaybackActiveFilters {
+  language?: string;
+  contentType?: string;
+  genre?: string;
+  mood?: string;
+  theme?: string;
+  concept?: string;
+  search?: string;
+  [key: string]: any;
+}
+
+export type QueueMode = 'catalog' | 'contextual';
+
+export interface PlaybackContext {
+  currentTrackId: string;
+  source: string;
+  sourceType: PlaybackSourceType;
+  activeFilters: PlaybackActiveFilters;
+  activeSort: string;
+  contentType?: string;
+  language?: string;
+  genre?: string[];
+  mood?: string[];
+  theme?: string;
+  concept?: string;
+  artist?: string;
+  currentPosition: number;
+  queueMode: QueueMode;
+  queue: TrackConfig[];
+  currentTrack: TrackConfig | null;
+  nextTrack: TrackConfig | null;
+  remainingQueue: TrackConfig[];
+}
+
+export interface QueueState {
+  currentTrack: TrackConfig | null;
+  nextTrack: TrackConfig | null;
+  remainingQueue: TrackConfig[];
+  queueMode: QueueMode;
+}
+
+export interface CandidateMatchDetails {
+  language: boolean;
+  contentType: boolean;
+  genre: boolean;
+  mood: boolean;
+  theme: boolean;
+  artist: boolean;
+  activeFilters: boolean;
+}
+
+export interface CandidateScoreBreakdown {
+  language: number;
+  contentType: number;
+  genre: number;
+  mood: number;
+  theme: number;
+  artist: number;
+  activeFilters: number;
+}
+
+export interface TrackScoreDetails {
+  candidate: TrackConfig;
+  totalScore: number;
+  matches: CandidateMatchDetails;
+  scoreBreakdown: CandidateScoreBreakdown;
+  catalogNumber: number;
+}
+
+export interface ScoringWeights {
+  language: number;
+  contentType: number;
+  genre: number;
+  mood: number;
+  theme: number;
+  artist: number;
+  activeFilterBonus: number;
+}
+
+export interface PlayTrackOptions {
+  source?: string;
+  sourceType?: PlaybackSourceType;
+  activeFilters?: PlaybackActiveFilters;
+  activeSort?: string;
+  queueMode?: QueueMode;
+  queue?: TrackConfig[];
+}
+

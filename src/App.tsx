@@ -1,7 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TRACK_REGISTRY } from './config/tracks';
-import { TrackConfig } from './types';
+import { TrackConfig, PlayTrackOptions, PlaybackContext } from './types';
 import { audioEngine } from './services/audioEngine';
+import {
+  createPlaybackContext,
+  updatePlaybackContextTrack,
+} from './services/playbackContext';
 import { Header } from './components/Header';
 import { HeroCover } from './components/HeroCover';
 import { CollectionGallery } from './components/CollectionGallery';
@@ -12,6 +16,24 @@ import { PersistentPlayerBar } from './components/PersistentPlayerBar';
 export default function App() {
   const [tracks] = useState<TrackConfig[]>(TRACK_REGISTRY);
   const [currentTrack, setCurrentTrack] = useState<TrackConfig | null>(TRACK_REGISTRY[0]);
+  const [playbackContext, setPlaybackContext] = useState<PlaybackContext | null>(() => {
+    return createPlaybackContext(
+      TRACK_REGISTRY[0],
+      {
+        source: 'hero',
+        sourceType: 'CATALOG',
+        activeFilters: {},
+        activeSort: 'default',
+        queueMode: 'catalog',
+      },
+      TRACK_REGISTRY
+    );
+  });
+
+  const playbackContextRef = useRef<PlaybackContext | null>(playbackContext);
+  useEffect(() => {
+    playbackContextRef.current = playbackContext;
+  }, [playbackContext]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(240);
@@ -52,15 +74,33 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
+  const currentTrackRef = useRef<TrackConfig | null>(currentTrack);
+  useEffect(() => {
+    currentTrackRef.current = currentTrack;
+  }, [currentTrack]);
+
   // Subscribe to persistent audio engine
   useEffect(() => {
     const unsubscribe = audioEngine.subscribe((state) => {
       setIsPlaying(state.isPlaying);
       setCurrentTime(state.currentTime);
       setDuration(state.duration);
+      if (state.currentTrack && state.currentTrack.id !== currentTrackRef.current?.id) {
+        setCurrentTrack(state.currentTrack);
+      }
+      if (state.playbackContext) {
+        setPlaybackContext(state.playbackContext);
+      }
     });
 
     return unsubscribe;
+  }, []);
+
+  // Sync initial playback context with audioEngine on startup
+  useEffect(() => {
+    if (playbackContext) {
+      audioEngine.setPlaybackContext(playbackContext);
+    }
   }, []);
 
   // Keyboard shortcut handlers
@@ -85,38 +125,33 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [viewMode]);
 
-  const handlePlayTrack = (track: TrackConfig) => {
-    if (currentTrack?.id === track.id) {
+  const handlePlayTrack = (track: TrackConfig, options?: PlayTrackOptions) => {
+    if (currentTrack?.id === track.id && !options) {
       audioEngine.togglePlay();
-    } else {
-      setCurrentTrack(track);
-      audioEngine.loadTrack(track, true);
+      return;
     }
+
+    const newContext = createPlaybackContext(track, options, tracks);
+    setPlaybackContext(newContext);
+    audioEngine.setPlaybackContext(newContext);
+    setCurrentTrack(track);
+    audioEngine.loadTrack(track, true);
   };
 
-  const handleOpenLyrics = (track: TrackConfig) => {
-    if (currentTrack?.id !== track.id) {
-      setCurrentTrack(track);
-      audioEngine.loadTrack(track, true);
+  const handleOpenLyrics = (track: TrackConfig, options?: PlayTrackOptions) => {
+    if (currentTrack?.id !== track.id || options) {
+      handlePlayTrack(track, options);
     }
     setViewMode('immersive');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleNextTrack = () => {
-    if (!currentTrack) return;
-    const currIdx = tracks.findIndex((t) => t.id === currentTrack.id);
-    const nextTrack = tracks[(currIdx + 1) % tracks.length];
-    setCurrentTrack(nextTrack);
-    audioEngine.loadTrack(nextTrack, true);
+    audioEngine.playNextTrack('manual');
   };
 
   const handlePrevTrack = () => {
-    if (!currentTrack) return;
-    const currIdx = tracks.findIndex((t) => t.id === currentTrack.id);
-    const prevTrack = tracks[(currIdx - 1 + tracks.length) % tracks.length];
-    setCurrentTrack(prevTrack);
-    audioEngine.loadTrack(prevTrack, true);
+    audioEngine.playPrevTrack();
   };
 
   const handleNavigateSection = (sectionId: string) => {
@@ -138,12 +173,24 @@ export default function App() {
       {viewMode === 'immersive' && currentTrack ? (
         <ImmersivePlayer
           track={currentTrack}
-          allTracks={tracks}
+          allTracks={playbackContext?.queue || tracks}
+          playbackContext={playbackContext}
           onBack={() => setViewMode('gallery')}
           onSelectTrack={(t) => {
-            setCurrentTrack(t);
-            audioEngine.loadTrack(t, true);
+            handlePlayTrack(
+              t,
+              playbackContext
+                ? {
+                    source: playbackContext.source,
+                    sourceType: playbackContext.sourceType,
+                    activeFilters: playbackContext.activeFilters,
+                    activeSort: playbackContext.activeSort,
+                  }
+                : undefined
+            );
           }}
+          onNext={handleNextTrack}
+          onPrev={handlePrevTrack}
         />
       ) : (
         <>
@@ -192,6 +239,7 @@ export default function App() {
             isPlaying={isPlaying}
             currentTime={currentTime}
             duration={duration}
+            playbackContext={playbackContext}
             onOpenPlayer={() => setViewMode('immersive')}
             onNext={handleNextTrack}
             onPrev={handlePrevTrack}

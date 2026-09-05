@@ -1,5 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { TrackConfig } from '../types';
+import {
+  TrackConfig,
+  PlayTrackOptions,
+  PlaybackSourceType,
+  PlaybackActiveFilters,
+} from '../types';
 import { Play, Pause, ArrowUpRight, Search, X, RotateCcw, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
 
 export const ITEMS_PER_PAGE = 12;
@@ -8,8 +13,8 @@ interface ClosingIndexProps {
   tracks: TrackConfig[];
   currentTrack: TrackConfig | null;
   isPlaying: boolean;
-  onPlayTrack: (track: TrackConfig) => void;
-  onOpenLyrics: (track: TrackConfig) => void;
+  onPlayTrack: (track: TrackConfig, options?: PlayTrackOptions) => void;
+  onOpenLyrics: (track: TrackConfig, options?: PlayTrackOptions) => void;
 }
 
 type SortOption = 'number-asc' | 'title-asc' | 'title-desc' | 'tempo-asc' | 'tempo-desc';
@@ -283,6 +288,50 @@ export const ClosingIndex: React.FC<ClosingIndexProps> = ({
   const startRecordNum = totalItems === 0 ? 0 : startIndex + 1;
   const endRecordNum = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
 
+  // Context-Aware Playback Capture Handler for the Archive Index
+  const handlePlayTrackInIndex = (track: TrackConfig) => {
+    const isSearch = Boolean(searchQuery && searchQuery.trim() !== '');
+    const isPodcast =
+      selectedContentType.toUpperCase() === 'PODCAST' ||
+      track.contentType?.toUpperCase() === 'PODCAST';
+    const hasFilters =
+      selectedContentType !== 'ALL' ||
+      selectedLanguage !== 'ALL' ||
+      selectedGenre !== 'ALL' ||
+      selectedConcept !== 'ALL' ||
+      sortBy !== 'number-asc';
+
+    let sourceType: PlaybackSourceType = 'CATALOG';
+    if (isSearch) {
+      sourceType = 'SEARCH_CONTEXT';
+    } else if (isPodcast) {
+      sourceType = 'PODCAST_CONTEXT';
+    } else if (hasFilters) {
+      sourceType = 'FILTERED_COLLECTION';
+    } else {
+      sourceType = 'CATALOG';
+    }
+
+    const activeFilters: PlaybackActiveFilters = {};
+    if (isSearch) activeFilters.search = searchQuery.trim();
+    if (selectedContentType !== 'ALL') activeFilters.contentType = selectedContentType;
+    if (selectedLanguage !== 'ALL') activeFilters.language = selectedLanguage;
+    if (selectedGenre !== 'ALL') activeFilters.genre = selectedGenre;
+    if (selectedConcept !== 'ALL') activeFilters.theme = selectedConcept;
+
+    onPlayTrack(track, {
+      source: 'archive',
+      sourceType,
+      activeFilters,
+      activeSort: sortBy,
+    });
+  };
+
+  const handleOpenLyricsInIndex = (track: TrackConfig) => {
+    handlePlayTrackInIndex(track);
+    onOpenLyrics(track);
+  };
+
   return (
     <footer id="closing" className="py-20 md:py-28 w-full border-t hairline-border font-sans-clean bg-[var(--bg-main)] text-[var(--text-primary)] transition-colors duration-300">
       <div className="editorial-container">
@@ -530,7 +579,7 @@ export const ClosingIndex: React.FC<ClosingIndexProps> = ({
                   return (
                     <tr
                       key={track.id}
-                      onClick={() => onPlayTrack(track)}
+                      onClick={() => handlePlayTrackInIndex(track)}
                       className={`cursor-pointer transition-colors duration-200 ${
                         isCurrent
                           ? 'bg-[var(--accent-primary)]/15 font-medium'
@@ -596,7 +645,7 @@ export const ClosingIndex: React.FC<ClosingIndexProps> = ({
                         <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
-                            onClick={() => onPlayTrack(track)}
+                            onClick={() => handlePlayTrackInIndex(track)}
                             className="p-2 border hairline-border bg-[var(--bg-chip)] text-[var(--text-primary)] hover:bg-[var(--accent-primary)] hover:border-[var(--accent-primary)] hover:text-[#FFFFFF] dark:hover:text-[#10110E] transition-all cursor-pointer"
                             title={isTrackPlaying ? 'Pause' : 'Play in Persistent Player'}
                             aria-label={isTrackPlaying ? 'Pause' : 'Play'}
@@ -610,7 +659,7 @@ export const ClosingIndex: React.FC<ClosingIndexProps> = ({
 
                           <button
                             type="button"
-                            onClick={() => onOpenLyrics(track)}
+                            onClick={() => handleOpenLyricsInIndex(track)}
                             className="p-2 border hairline-border bg-[var(--bg-chip)] text-[var(--text-primary)] hover:bg-[var(--accent-primary)] hover:border-[var(--accent-primary)] hover:text-[#FFFFFF] dark:hover:text-[#10110E] transition-all cursor-pointer"
                             title="Open Synchronized Lyrics & Notes"
                             aria-label="Open Lyrics"
@@ -635,7 +684,7 @@ export const ClosingIndex: React.FC<ClosingIndexProps> = ({
               return (
                 <div
                   key={track.id}
-                  onClick={() => onPlayTrack(track)}
+                  onClick={() => handlePlayTrackInIndex(track)}
                   className={`p-4 border hairline-border bg-[var(--bg-surface)] transition-colors cursor-pointer shadow-md ${
                     isCurrent ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : ''
                   }`}
@@ -667,7 +716,7 @@ export const ClosingIndex: React.FC<ClosingIndexProps> = ({
                     <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
-                        onClick={() => onPlayTrack(track)}
+                        onClick={() => handlePlayTrackInIndex(track)}
                         className="p-2 border hairline-border bg-[var(--bg-chip)] text-[var(--text-primary)] hover:bg-[var(--accent-primary)] hover:text-white transition-colors"
                         aria-label={isTrackPlaying ? 'Pause' : 'Play'}
                       >
@@ -679,7 +728,7 @@ export const ClosingIndex: React.FC<ClosingIndexProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => onOpenLyrics(track)}
+                        onClick={() => handleOpenLyricsInIndex(track)}
                         className="p-2 border hairline-border bg-[var(--bg-chip)] text-[var(--text-primary)] hover:bg-[var(--accent-primary)] hover:text-white transition-colors"
                         aria-label="Open Lyrics"
                       >
